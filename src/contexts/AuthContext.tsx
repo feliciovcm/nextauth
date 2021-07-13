@@ -1,6 +1,7 @@
-import { createContext, ReactNode, useState } from "react";
-import Router from 'next/router'
+import { createContext, ReactNode, useEffect, useState } from "react";
+import Router from "next/router";
 import { api } from "../services/api";
+import { setCookie, parseCookies } from "nookies";
 
 type SignInCredentials = {
   email: string;
@@ -11,7 +12,7 @@ type User = {
   email: string;
   permissions: string[];
   roles: string[];
-}
+};
 
 type AuthContextData = {
   signIn(credentials: SignInCredentials): Promise<void>;
@@ -26,10 +27,21 @@ type AuthProviderProps = {
 export const AuthContext = createContext({} as AuthContextData);
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User>(null);
 
   // booleano que diz se usuario é autheticado ou não
-  const isAuthenticated = false;
+  const isAuthenticated = !!user;
+
+  useEffect(() => {
+    const { "nextauth.token": token } = parseCookies();
+
+    if (token) {
+      api.get("/me").then((response) => {
+        const { email, permissions, roles } = response.data;
+        setUser({ email, permissions, roles });
+      });
+    }
+  }, []);
 
   async function signIn({ email, password }: SignInCredentials) {
     // função que será executada quando o usuario clicar em login, enviando assim
@@ -41,15 +53,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
         password,
       });
 
-      const { permissions, roles } = response.data;
+      const { token, refreshToken, permissions, roles } = response.data;
+
+      // sessionStorage : Não fica disponível em outras sessões. Ou seja, fechou o navegador
+      // e abriu denovo, perde o sessionStorage
+
+      // localStorage: A criação da interface não é feita somente pelo lado do browser
+      // no caso do next, e o localstorage só existe do lado do cliente(browser)
+
+      //cookies: Melhor opção de armazenar informações, para ser utilizada entre paginas
+      // pode ser utilizada tanto do lado do browser quanto do servidos node do next
+
+      setCookie(undefined, "nextauth.token", token, {
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+        path: "/", // colocando o / siginifica que qualquer endereço da aplicação terá acesso ao cookie.
+      });
+      setCookie(undefined, "nextauth.refreshToken", refreshToken, {
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+        path: "/", // colocando o / siginifica que qualquer endereço da aplicação terá acesso ao cookie.
+      });
+
+      // O primeiro parâmetro deve ser undefined pois essa ação de setar os cookies
+      // será feita somente pelo lado do browser. Como a execução dessa linha de
+      // código depende de uma ação do usuário, a ação de singin, logo é uma ação
+      // feita pelo lado do cliente, e assim o primeiro parametro deve ser undefined.
 
       setUser({
         email,
         permissions,
-        roles
+        roles,
       });
 
-      Router.push('/dashboard');
+      api.defaults.headers["Authorization"] = `Bearer ${token}`;
+
+      Router.push("/dashboard");
     } catch (error) {
       console.log(error);
     }

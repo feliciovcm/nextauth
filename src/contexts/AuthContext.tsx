@@ -1,7 +1,7 @@
 import { createContext, ReactNode, useEffect, useState } from "react";
 import Router from "next/router";
-import { api } from "../services/api";
-import { setCookie, parseCookies } from "nookies";
+import { setCookie, parseCookies, destroyCookie } from "nookies";
+import { api } from "../services/apiClient";
 
 type SignInCredentials = {
   email: string;
@@ -26,6 +26,13 @@ type AuthProviderProps = {
 
 export const AuthContext = createContext({} as AuthContextData);
 
+export function signOut() {
+  destroyCookie(undefined, "nextauth.token");
+  destroyCookie(undefined, "nextauth.refreshToken");
+
+  Router.push("/");
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User>(null);
 
@@ -36,10 +43,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const { "nextauth.token": token } = parseCookies();
 
     if (token) {
-      api.get("/me").then((response) => {
-        const { email, permissions, roles } = response.data;
-        setUser({ email, permissions, roles });
-      });
+      api
+        .get("/me")
+        .then((response) => {
+          const { email, permissions, roles } = response.data;
+          setUser({ email, permissions, roles });
+        })
+        .catch((error) => {
+          signOut();
+        });
+      // Toda vez, que houver um refresh na pagina, o authcontext irá dar uma get na rota /me
+      // Irá verificar se o usuario está autenticado. Se não estiver e o erro for de refreshtoken
+      // A rota será interceptada pelo axios, como tratado no arquivo api.ts. Agora se ocorrer
+      // QUalquer outro tipo de erro, o catch irá pegar esse erro, irá destruir os cookies e
+      // irá redirecionar o usuário para a rota de login.
     }
   }, []);
 
